@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Smart Farm Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+    <link
+      href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css"
+      rel="stylesheet"
+    />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.28.0/feather.min.js"></script>
+  </head>
+  <body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+      <!-- Header -->
+      <div class="flex justify-between items-center mb-8">
+        <div>
+          <h1 class="text-xl md:text-3xl font-bold text-gray-800">
+            SenseChill System
+          </h1>
+          <span class="text-sm text-gray-500 font-bold">ITI DODAMARG</span>
+        </div>
+        <div class="flex items-center space-x-4">
+          <span
+            id="connectionStatus"
+            class="px-4 py-2 rounded-full text-sm font-semibold"
+          ></span>
+          <button
+            id="refreshBtn"
+            class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors"
+          >
+            <i data-feather="refresh-cw"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Device Grid -->
+      <div
+        id="deviceGrid"
+        class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
+      >
+        <!-- Device cards will be inserted here -->
+      </div>
+    </div>
+
+    <!-- Device Card Template -->
+    <template id="deviceTemplate">
+      <div class="bg-white rounded-lg shadow-lg p-4 md:p-6 device-card">
+        <div class="flex justify-between items-start mb-4">
+          <div>
+            <h3
+              class="text-lg md:text-xl font-semibold text-gray-800 device-id"
+            ></h3>
+            <p class="text-sm text-gray-500 last-seen"></p>
+          </div>
+          <span
+            class="device-status px-3 py-1 rounded-full text-sm font-semibold"
+          ></span>
+        </div>
+        <div class="space-y-4">
+          <div class="flex justify-between items-center">
+            <span class="text-gray-600">Motion Detected</span>
+            <span
+              class="motion-status px-3 py-1 rounded-full text-sm font-semibold"
+            ></span>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-gray-600">AC Status</span>
+            <button
+              class="ac-toggle px-3 py-1 rounded-full text-white transition-colors flex items-center space-x-2"
+            >
+              <i data-feather="power"></i>
+              <span>Off</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <script>
+      const socket = io("http://localhost:3000");
+      const devices = new Map();
+
+      // Update Connection Status
+      function updateConnectionStatus(connected) {
+        const status = document.getElementById("connectionStatus");
+        if (connected) {
+          status.textContent = "Connected";
+          status.classList.remove("bg-red-100", "text-red-800");
+          status.classList.add("bg-green-100", "text-green-800");
+        } else {
+          status.textContent = "Disconnected";
+          status.classList.remove("bg-green-100", "text-green-800");
+          status.classList.add("bg-red-100", "text-red-800");
+        }
+      }
+
+      // Create/Update Device Card
+      function updateDeviceCard(deviceData) {
+        let card = devices.get(deviceData.chipId);
+
+        if (!card) {
+          const template = document.getElementById("deviceTemplate");
+          card = template.content.cloneNode(true).children[0];
+          document.getElementById("deviceGrid").appendChild(card);
+          devices.set(deviceData.chipId, card);
+
+          // Set up AC toggle
+          const toggle = card.querySelector(".ac-toggle");
+          toggle.addEventListener("click", () => {
+            const action = toggle.classList.contains("bg-red-500")
+              ? "turnOn"
+              : "turnOff";
+            socket.emit("sensorRequest", {
+              chipId: deviceData.chipId,
+              action,
+            });
+          });
+        }
+
+        // Update card content
+        card.querySelector(".device-id").textContent = deviceData.chipId;
+        card.querySelector(".last-seen").textContent = `Last seen: ${moment(
+          deviceData.lastSeen
+        ).fromNow()}`;
+
+        const deviceStatus = card.querySelector(".device-status");
+        deviceStatus.textContent = deviceData.connected ? "Online" : "Offline";
+        deviceStatus.className = `device-status px-3 py-1 rounded-full text-sm font-semibold ${
+          deviceData.connected
+            ? "bg-green-100 text-green-800"
+            : "bg-red-100 text-red-800"
+        }`;
+
+        const motionStatus = card.querySelector(".motion-status");
+        motionStatus.textContent = deviceData.pirStatus ? "Active" : "Inactive";
+        motionStatus.className = `motion-status px-3 py-1 rounded-full text-sm font-semibold ${
+          deviceData.pirStatus
+            ? "bg-yellow-100 text-yellow-800"
+            : "bg-gray-100 text-gray-800"
+        }`;
+
+        const acToggle = card.querySelector(".ac-toggle");
+        const toggleState = deviceData.relayStatus;
+        acToggle.className = `ac-toggle px-3 py-1 rounded-full text-white transition-colors flex items-center space-x-2 ${
+          toggleState
+            ? "bg-green-500 hover:bg-green-600"
+            : "bg-red-500 hover:bg-red-600"
+        }`;
+        acToggle.querySelector("span").textContent = toggleState ? "On" : "Off";
+      }
+
+      // Socket event handlers
+      socket.on("connect", () => {
+        updateConnectionStatus(true);
+        socket.emit("clientRegister", { chipIds: ["CHIP123"] }); // Add your chip IDs
+      });
+
+      socket.on("disconnect", () => {
+        updateConnectionStatus(false);
+      });
+
+      socket.on("sensorResponse", (data) => {
+        if (data.success) {
+          updateDeviceCard({
+            chipId: data.chipId,
+            connected: true,
+            lastSeen: Date.now(),
+            ...data,
+          });
+        }
+      });
+
+      socket.on("deviceDisconnected", ({ chipId }) => {
+        const card = devices.get(chipId);
+        if (card) {
+          updateDeviceCard({
+            chipId,
+            connected: false,
+            lastSeen: Date.now(),
+            pirStatus: false,
+            relayStatus: false,
+          });
+        }
+      });
+
+      // Initialize
+      document.addEventListener("DOMContentLoaded", () => {
+        feather.replace();
+        document.getElementById("refreshBtn").addEventListener("click", () => {
+          socket.emit("clientRegister", { chipIds: ["CHIP123"] }); // Add your chip IDs
+        });
+      });
+    </script>
+  </body>
+</html>
