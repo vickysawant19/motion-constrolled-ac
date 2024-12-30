@@ -172,7 +172,8 @@ void setup() {
 
     USE_SERIAL.printf("Connected to WiFi. IP: %s\n", WiFi.localIP().toString().c_str());
     
-    socketIO.begin("192.168.1.6", 3000, "/socket.io/?EIO=4");
+    // socketIO.begin("192.168.1.6", 3000, "/socket.io/?EIO=4");
+    socketIO.beginSSL("iti-dodamarg-rac.onrender.com", 443, "/socket.io/?EIO=4");
     socketIO.onEvent(socketIOEvent);
 }
 
